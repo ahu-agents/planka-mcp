@@ -38,17 +38,27 @@ function tool<I extends z.ZodTypeAny>(
   inputSchema: I,
   handler: (input: z.infer<I>) => Promise<unknown>,
 ) {
-  server.registerTool(
-    name,
-    { description, inputSchema },
-    (async (input: unknown) => {
-      try {
-        return asText(await handler(input as z.infer<I>));
-      } catch (error) {
-        return errorText(error);
-      }
-    }) as any,
-  );
+  const callback = (async (input: unknown) => {
+    try {
+      return asText(await handler(input as z.infer<I>));
+    } catch (error) {
+      return errorText(error);
+    }
+  }) as any;
+
+  server.registerTool(name, { description, inputSchema }, callback);
+
+  // Compatibility for the earlier public Planka MCP whose tool names were
+  // planka_*; OpenClaw prefixes server names, so old callers saw
+  // planka__planka_get_board. Keep those names working during migration while
+  // also exposing the cleaner planka__get_board names.
+  if (!name.startsWith("planka_")) {
+    server.registerTool(
+      `planka_${name}`,
+      { description: `Compatibility alias for ${name}. ${description}`, inputSchema },
+      callback,
+    );
+  }
 }
 
 const Empty = z.object({}).default({});
