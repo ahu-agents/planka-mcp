@@ -6,6 +6,88 @@ import { PlankaApiError, PlankaClient, type HttpMethod } from "./planka-client.j
 const Position = z.number().finite().optional();
 const Id = z.string().min(1);
 const Empty = z.object({}).default({});
+const ProjectType = z.enum(["private", "shared"]);
+const UserRole = z.enum(["admin", "projectOwner", "boardUser"]);
+const BoardRole = z.enum(["editor", "viewer"]);
+const DefaultView = z.enum(["kanban", "grid", "list"]);
+const DefaultCardType = z.enum(["project", "story"]);
+
+type CurrentUser = {
+  id?: string;
+  email?: string;
+  name?: string;
+  username?: string | null;
+  role?: string;
+  isDefaultAdmin?: boolean;
+};
+
+async function getCurrentUser(client: PlankaClient): Promise<CurrentUser> {
+  const response = (await client.get("/api/users/me")) as { item?: CurrentUser };
+  return response?.item ?? {};
+}
+
+function allowedByRole(role: string | undefined, allowedRoles: string[]): boolean {
+  return !!role && allowedRoles.includes(role);
+}
+
+async function requireRole(client: PlankaClient, allowedRoles: string[], operation: string): Promise<CurrentUser> {
+  const user = await getCurrentUser(client);
+  if (!allowedByRole(user.role, allowedRoles)) {
+    throw new Error(
+      `Current Planka MCP user role '${user.role ?? "unknown"}' is not allowed to ${operation}. ` +
+        `Required role: ${allowedRoles.join(" or ")}.`,
+    );
+  }
+  return user;
+}
+
+function permissionStatus(role: string | undefined, allowedRoles: string[], conditional = false) {
+  if (allowedByRole(role, allowedRoles)) return "allowed";
+  return conditional ? "conditional_or_denied" : "not_allowed";
+}
+
+function capabilityMatrix(user: CurrentUser) {
+  const role = user.role;
+  return {
+    currentUser: {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      name: user.name,
+      role,
+      isDefaultAdmin: user.isDefaultAdmin,
+    },
+    note:
+      "Project and board membership operations can also depend on target project/board permissions. " +
+      "Use this before admin-style calls so the model can avoid pointless forbidden operations.",
+    tools: {
+      health_check: { status: "allowed", requires: "authenticated Planka user" },
+      list_projects: { status: "allowed", requires: "authenticated Planka user" },
+      get_structure: { status: "allowed", requires: "authenticated Planka user with access to the target project/board" },
+      get_current_user: { status: "allowed", requires: "authenticated Planka user" },
+      get_capabilities: { status: "allowed", requires: "authenticated Planka user" },
+      list_users: { status: permissionStatus(role, ["admin"]), requires: "admin" },
+      get_user: { status: permissionStatus(role, ["admin"], true), requires: "admin for arbitrary users; current user can read itself" },
+      create_user: { status: permissionStatus(role, ["admin"]), requires: "admin" },
+      update_user: { status: permissionStatus(role, ["admin"]), requires: "admin for other users" },
+      update_user_email: { status: permissionStatus(role, ["admin"]), requires: "admin for other users" },
+      update_user_username: { status: permissionStatus(role, ["admin"]), requires: "admin for other users" },
+      update_user_password: { status: permissionStatus(role, ["admin"]), requires: "admin for other users" },
+      delete_user: { status: permissionStatus(role, ["admin"]), requires: "admin; destructive" },
+      create_project: { status: permissionStatus(role, ["admin", "projectOwner"]), requires: "admin or projectOwner" },
+      update_project: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/owner of the target project" },
+      delete_project: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/owner of the target project; destructive" },
+      create_board: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/owner of the target project" },
+      update_board: { status: permissionStatus(role, ["admin"], true), requires: "admin or editor/manager on the target board" },
+      delete_board: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/owner of the target project; destructive" },
+      add_project_manager: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/owner of the target project" },
+      remove_project_manager: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/owner of the target project" },
+      add_board_member: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/editor with membership rights on target board" },
+      update_board_member: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/editor with membership rights on target board" },
+      remove_board_member: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/editor with membership rights on target board" },
+    },
+  };
+}
 
 function asText(data: unknown) {
   return {
@@ -79,7 +161,126 @@ export function createMcpServer(client: PlankaClient, config: ToolRuntimeConfig)
     tool(server, config, name, description, inputSchema, handler);
 
   register("health_check", "Authenticate with Planka and verify API reachability.", Empty, async () => client.health());
+  register("get_current_user", "Return the Planka user and role used by this MCP server.", Empty, async () => getCurrentUser(client));
+  register("get_capabilities", "Return current Planka role plus MCP tool capability guidance so agents can avoid forbidden operations.", Empty, async () => capabilityMatrix(await getCurrentUser(client)));
+
   register("list_projects", "List Planka projects and included boards.", Empty, async () => client.get("/api/projects"));
+  register("list_users", "List Planka users. Requires Planka admin role.", Empty, async () => {
+    await requireRole(client, ["admin"], "list users");
+    return client.get("/api/users");
+  });
+  register("get_user", "Get Planka user details by ID, or 'me' for the current MCP user.", z.object({ userId: z.string().min(1) }), async ({ userId }) => client.get(`/api/users/${segment(userId)}`));
+
+  register(
+    "create_user",
+    "Create a Planka user. Requires Planka admin role. The password is sent only to Planka.",
+    z.object({
+      email: z.string().email(),
+      password: z.string().min(1).max(256),
+      role: UserRole,
+      name: z.string().min(1).max(128),
+      username: z.string().min(3).max(32).nullable().optional(),
+      phone: z.string().max(128).nullable().optional(),
+      organization: z.string().max(128).nullable().optional(),
+      language: z.string().nullable().optional(),
+    }),
+    async (body) => {
+      await requireRole(client, ["admin"], "create users");
+      return client.post("/api/users", body);
+    },
+  );
+
+  register(
+    "update_user",
+    "Update Planka user profile/role fields. Requires Planka admin role for other users.",
+    z.object({
+      userId: Id,
+      role: UserRole.optional(),
+      name: z.string().min(1).max(128).optional(),
+      phone: z.string().max(128).nullable().optional(),
+      organization: z.string().max(128).nullable().optional(),
+      language: z.string().optional(),
+      subscribeToOwnCards: z.boolean().optional(),
+      subscribeToCardWhenCommenting: z.boolean().optional(),
+      turnOffRecentCardHighlighting: z.boolean().optional(),
+      enableFavoritesByDefault: z.boolean().optional(),
+      defaultEditorMode: z.enum(["wysiwyg", "markup"]).optional(),
+      defaultHomeView: z.enum(["gridProjects", "groupedProjects"]).optional(),
+      defaultProjectsOrder: z.enum(["byDefault", "alphabetically", "byCreationTime"]).optional(),
+    }),
+    async ({ userId, ...body }) => {
+      await requireRole(client, ["admin"], "update users");
+      return client.patch(`/api/users/${segment(userId)}`, body);
+    },
+  );
+  register("update_user_email", "Update a Planka user's email. Requires admin for other users.", z.object({ userId: Id, email: z.string().email(), currentPassword: z.string().optional() }), async ({ userId, ...body }) => {
+    await requireRole(client, ["admin"], "update user email");
+    return client.patch(`/api/users/${segment(userId)}/email`, body);
+  });
+  register("update_user_username", "Update a Planka user's username. Requires admin for other users.", z.object({ userId: Id, username: z.string().min(3).max(32).nullable(), currentPassword: z.string().optional() }), async ({ userId, ...body }) => {
+    await requireRole(client, ["admin"], "update user username");
+    return client.patch(`/api/users/${segment(userId)}/username`, body);
+  });
+  register("update_user_password", "Update a Planka user's password. Requires admin for other users.", z.object({ userId: Id, password: z.string().min(1).max(256), currentPassword: z.string().optional() }), async ({ userId, ...body }) => {
+    await requireRole(client, ["admin"], "update user password");
+    return client.patch(`/api/users/${segment(userId)}/password`, body);
+  });
+  register("delete_user", "Delete a Planka user. Requires admin. Destructive; use only with explicit approval.", z.object({ userId: Id }), async ({ userId }) => {
+    await requireRole(client, ["admin"], "delete users");
+    return client.delete(`/api/users/${segment(userId)}`);
+  });
+
+  register(
+    "create_project",
+    "Create a Planka project. Usually requires admin or projectOwner role.",
+    z.object({ type: ProjectType.default("private"), name: z.string().min(1).max(128), description: z.string().max(1024).nullable().optional() }),
+    async (body) => {
+      await requireRole(client, ["admin", "projectOwner"], "create projects");
+      return client.post("/api/projects", body);
+    },
+  );
+  register(
+    "update_project",
+    "Update a Planka project. Requires admin or sufficient rights on the target project.",
+    z.object({ projectId: Id, name: z.string().min(1).max(128).optional(), description: z.string().max(1024).nullable().optional(), isHidden: z.boolean().optional(), isFavorite: z.boolean().optional() }),
+    async ({ projectId, ...body }) => client.patch(`/api/projects/${segment(projectId)}`, body),
+  );
+  register("delete_project", "Delete a Planka project. Destructive; use only with explicit approval.", z.object({ projectId: Id }), async ({ projectId }) => client.delete(`/api/projects/${segment(projectId)}`));
+
+  register(
+    "create_board",
+    "Create a board inside a Planka project. Requires admin or sufficient rights on the target project.",
+    z.object({ projectId: Id, name: z.string().min(1).max(128), position: z.number().finite().default(65536), requestId: z.string().max(128).optional() }),
+    async ({ projectId, ...body }) => client.postForm(`/api/projects/${segment(projectId)}/boards`, body),
+  );
+  register(
+    "update_board",
+    "Update board settings.",
+    z.object({
+      boardId: Id,
+      position: Position,
+      name: z.string().min(1).max(128).optional(),
+      defaultView: DefaultView.optional(),
+      defaultCardType: DefaultCardType.optional(),
+      limitCardTypesToDefaultOne: z.boolean().optional(),
+      alwaysDisplayCardCreator: z.boolean().optional(),
+      displayCardAges: z.boolean().optional(),
+      expandTaskListsByDefault: z.boolean().optional(),
+      isSubscribed: z.boolean().optional(),
+    }),
+    async ({ boardId, ...body }) => client.patch(`/api/boards/${segment(boardId)}`, body),
+  );
+  register("delete_board", "Delete a board. Destructive; use only with explicit approval.", z.object({ boardId: Id }), async ({ boardId }) => client.delete(`/api/boards/${segment(boardId)}`));
+
+  register("add_project_manager", "Assign a user as project manager for a project.", z.object({ projectId: Id, userId: Id }), async ({ projectId, userId }) => client.post(`/api/projects/${segment(projectId)}/project-managers`, { userId }));
+  register("remove_project_manager", "Remove a project manager assignment by projectManagerId.", z.object({ projectManagerId: Id }), async ({ projectManagerId }) => client.delete(`/api/project-managers/${segment(projectManagerId)}`));
+  register("add_board_member", "Add a user to a board as editor or viewer.", z.object({ boardId: Id, userId: Id, role: BoardRole, canComment: z.boolean().nullable().optional() }), async ({ boardId, ...body }) =>
+    client.post(`/api/boards/${segment(boardId)}/board-memberships`, body),
+  );
+  register("update_board_member", "Update a board membership role/comment permission by boardMembershipId.", z.object({ boardMembershipId: Id, role: BoardRole.optional(), canComment: z.boolean().nullable().optional() }), async ({ boardMembershipId, ...body }) =>
+    client.patch(`/api/board-memberships/${segment(boardMembershipId)}`, body),
+  );
+  register("remove_board_member", "Remove a board membership by boardMembershipId.", z.object({ boardMembershipId: Id }), async ({ boardMembershipId }) => client.delete(`/api/board-memberships/${segment(boardMembershipId)}`));
 
   register(
     "get_structure",

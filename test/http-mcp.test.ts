@@ -62,11 +62,49 @@ test("streamable HTTP transport lists tools and calls health_check", async () =>
   await withClient(fetchImpl as typeof fetch, async (client) => {
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "health_check"));
+    assert.ok(tools.tools.some((tool) => tool.name === "get_capabilities"));
+    assert.ok(tools.tools.some((tool) => tool.name === "create_project"));
+    assert.ok(tools.tools.some((tool) => tool.name === "create_board"));
+    assert.ok(tools.tools.some((tool) => tool.name === "list_users"));
     assert.ok(tools.tools.some((tool) => tool.name === "get_board"));
     assert.ok(tools.tools.some((tool) => tool.name === "planka_get_board"));
     const result = await client.callTool({ name: "health_check", arguments: {} });
     assert.equal(result.isError, undefined);
     assert.match(JSON.stringify(result.content), /planka\.local/);
+  });
+});
+
+test("capability tool reports current Planka role", async () => {
+  const fetchImpl = async (url: string | URL | Request) => {
+    if (String(url).endsWith("/api/access-tokens")) return jsonResponse({ item: "jwt-token" });
+    if (String(url).endsWith("/api/users/me")) return jsonResponse({ item: { id: "u1", email: "admin@example.invalid", role: "admin", name: "Admin" } });
+    return jsonResponse({ error: "unexpected" }, 404);
+  };
+
+  await withClient(fetchImpl as typeof fetch, async (client) => {
+    const result = await client.callTool({ name: "get_capabilities", arguments: {} });
+    assert.equal(result.isError, undefined);
+    assert.match(JSON.stringify(result.content), /admin@example\.invalid/);
+    assert.match(JSON.stringify(result.content), /create_user/);
+    assert.match(JSON.stringify(result.content), /allowed/);
+  });
+});
+
+test("create_board sends Planka multipart form data", async () => {
+  let sawFormData = false;
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).endsWith("/api/access-tokens")) return jsonResponse({ item: "jwt-token" });
+    if (String(url).endsWith("/api/projects/p1/boards")) {
+      sawFormData = init?.body instanceof FormData;
+      return jsonResponse({ item: { id: "b1", projectId: "p1", name: "Board" } });
+    }
+    return jsonResponse({ error: "unexpected", url: String(url) }, 404);
+  };
+
+  await withClient(fetchImpl as typeof fetch, async (client) => {
+    const result = await client.callTool({ name: "create_board", arguments: { projectId: "p1", name: "Board" } });
+    assert.equal(result.isError, undefined);
+    assert.equal(sawFormData, true);
   });
 });
 

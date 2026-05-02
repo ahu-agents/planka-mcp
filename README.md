@@ -66,7 +66,11 @@ PLANKA_MCP_TRANSPORT=stdio npm start
 Read tools:
 
 - `health_check`
+- `get_current_user`
+- `get_capabilities`
 - `list_projects`
+- `list_users`
+- `get_user`
 - `get_structure`
 - `get_board`
 - `get_card`
@@ -74,11 +78,20 @@ Read tools:
 
 Write tools:
 
+- `create_user`, `update_user`, `update_user_email`, `update_user_username`, `update_user_password`, `delete_user`
+- `create_project`, `update_project`, `delete_project`
+- `create_board`, `update_board`, `delete_board`
+- `add_project_manager`, `remove_project_manager`
+- `add_board_member`, `update_board_member`, `remove_board_member`
 - `create_list`, `update_list`, `delete_list`
 - `create_card`, `update_card`, `move_card`, `delete_card`
 - `create_task_list`, `create_task`, `create_tasks`, `update_task`, `delete_task`, `delete_task_list`
 - `add_comment`, `update_comment`, `delete_comment`
 - `create_label`, `update_label`, `delete_label`, `add_label_to_card`, `remove_label_from_card`, `set_card_labels`
+
+Role-aware helper:
+
+- `get_capabilities` returns the current Planka MCP user role and a status map for admin/project/board/user operations. Admin-only tools also fail early with a clear role message when the current MCP user is not allowed.
 
 Optional raw tool:
 

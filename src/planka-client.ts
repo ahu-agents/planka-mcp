@@ -40,6 +40,10 @@ export class PlankaClient {
     return this.request("POST", path, body);
   }
 
+  async postForm(path: string, fields: Record<string, string | number | boolean | null | undefined>): Promise<unknown> {
+    return this.requestForm("POST", path, fields);
+  }
+
   async patch(path: string, body?: unknown): Promise<unknown> {
     return this.request("PATCH", path, body);
   }
@@ -73,6 +77,48 @@ export class PlankaClient {
       this.token = undefined;
       this.tokenExpiresAt = 0;
       return this.request(method, path, body, true);
+    }
+
+    if (!response.ok) {
+      throw new PlankaApiError(method, path, response.status, payload);
+    }
+
+    return payload;
+  }
+
+  async requestForm(
+    method: Extract<HttpMethod, "POST">,
+    path: string,
+    fields: Record<string, string | number | boolean | null | undefined>,
+    retry = false,
+  ): Promise<unknown> {
+    if (!path.startsWith("/api/")) {
+      throw new Error(`Refusing non-API Planka path: ${path}`);
+    }
+
+    const token = await this.getToken();
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields)) {
+      if (value === undefined || value === null) continue;
+      form.append(key, String(value));
+    }
+
+    const response = await this.fetchWithTimeout(`${this.config.baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      body: form,
+    });
+
+    if (response.status === 204) return { ok: true };
+    const payload = await safeJson(response);
+
+    if (response.status === 401 && !retry && !this.config.token) {
+      this.token = undefined;
+      this.tokenExpiresAt = 0;
+      return this.requestForm(method, path, fields, true);
     }
 
     if (!response.ok) {
