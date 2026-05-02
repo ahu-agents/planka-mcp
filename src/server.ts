@@ -14,6 +14,7 @@ export async function runStdio(config: Config): Promise<void> {
 
 export function createHttpApp(config: Config, fetchImpl: typeof fetch = fetch): express.Express {
   const app = express();
+  const client = new PlankaClient(config, fetchImpl);
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/healthz", (_req, res) => {
@@ -21,7 +22,6 @@ export function createHttpApp(config: Config, fetchImpl: typeof fetch = fetch): 
   });
 
   app.post(config.path, async (req, res) => {
-    const client = new PlankaClient(config, fetchImpl);
     const server = createMcpServer(client, config);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     let cleanedUp = false;
@@ -61,10 +61,21 @@ export function createHttpApp(config: Config, fetchImpl: typeof fetch = fetch): 
 }
 
 export async function runHttp(config: Config): Promise<void> {
+  if (!config.allowNetworkBind && !isLoopbackHost(config.host)) {
+    throw new Error(
+      `Refusing to bind Planka MCP to non-loopback host ${config.host}. ` +
+        "Set PLANKA_MCP_ALLOW_NETWORK_BIND=1 only behind an authenticated reverse proxy.",
+    );
+  }
+
   const app = createHttpApp(config);
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(config.port, config.host, () => resolve());
     server.on("error", reject);
   });
   console.error(`planka-mcp listening on http://${config.host}:${config.port}${config.path}`);
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }

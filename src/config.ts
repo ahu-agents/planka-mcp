@@ -11,6 +11,8 @@ export type Config = {
   host: string;
   port: number;
   path: string;
+  allowNetworkBind: boolean;
+  debugErrors: boolean;
 };
 
 function readNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -56,5 +58,7 @@ export function loadConfig(env = process.env): Config {
     host: env.PLANKA_MCP_HOST ?? "127.0.0.1",
     port: readNumber(env, "PLANKA_MCP_PORT", 3333),
     path: env.PLANKA_MCP_PATH ?? "/mcp",
+    allowNetworkBind: env.PLANKA_MCP_ALLOW_NETWORK_BIND === "1" || env.PLANKA_MCP_ALLOW_NETWORK_BIND === "true",
+    debugErrors: env.PLANKA_MCP_DEBUG_ERRORS === "1" || env.PLANKA_MCP_DEBUG_ERRORS === "true",
   };
 }

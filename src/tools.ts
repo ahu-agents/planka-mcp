@@ -18,7 +18,9 @@ function asText(data: unknown) {
   };
 }
 
-function asError(error: unknown) {
+type ToolRuntimeConfig = Pick<Config, "enableRaw" | "debugErrors">;
+
+function asError(error: unknown, debugErrors: boolean) {
   if (error instanceof PlankaApiError) {
     return {
       ...asText({
@@ -26,7 +28,7 @@ function asError(error: unknown) {
         method: error.method,
         path: error.path,
         status: error.status,
-        responseBody: error.responseBody,
+        ...(debugErrors ? { responseBody: error.responseBody } : {}),
       }),
       isError: true as const,
     };
@@ -41,6 +43,7 @@ function segment(value: string): string {
 
 function tool<I extends z.ZodTypeAny>(
   server: McpServer,
+  config: ToolRuntimeConfig,
   name: string,
   description: string,
   inputSchema: I,
@@ -50,7 +53,7 @@ function tool<I extends z.ZodTypeAny>(
     try {
       return asText(await handler(input as z.infer<I>));
     } catch (error) {
-      return asError(error);
+      return asError(error, config.debugErrors);
     }
   }) as any;
 
@@ -69,14 +72,16 @@ function tool<I extends z.ZodTypeAny>(
   }
 }
 
-export function createMcpServer(client: PlankaClient, config: Pick<Config, "enableRaw">): McpServer {
+export function createMcpServer(client: PlankaClient, config: ToolRuntimeConfig): McpServer {
   const server = new McpServer({ name: "planka-mcp", version: "0.1.0" });
 
-  tool(server, "health_check", "Authenticate with Planka and verify API reachability.", Empty, async () => client.health());
-  tool(server, "list_projects", "List Planka projects and included boards.", Empty, async () => client.get("/api/projects"));
+  const register = <I extends z.ZodTypeAny>(name: string, description: string, inputSchema: I, handler: (input: z.infer<I>) => Promise<unknown>) =>
+    tool(server, config, name, description, inputSchema, handler);
 
-  tool(
-    server,
+  register("health_check", "Authenticate with Planka and verify API reachability.", Empty, async () => client.health());
+  register("list_projects", "List Planka projects and included boards.", Empty, async () => client.get("/api/projects"));
+
+  register(
     "get_structure",
     "Return projects with boards and lists. Optionally filter by projectId.",
     z.object({ projectId: Id.optional() }),
@@ -106,16 +111,15 @@ export function createMcpServer(client: PlankaClient, config: Pick<Config, "enab
     },
   );
 
-  tool(server, "get_board", "Get a board with included lists, cards, labels, task lists, and tasks.", z.object({ boardId: Id }), async ({ boardId }) => client.get(`/api/boards/${segment(boardId)}`));
-  tool(server, "get_card", "Get a card with included tasks, comments, labels, and attachments.", z.object({ cardId: Id }), async ({ cardId }) => client.get(`/api/cards/${segment(cardId)}`));
-  tool(server, "get_comments", "Get comments for a card.", z.object({ cardId: Id }), async ({ cardId }) => client.get(`/api/cards/${segment(cardId)}/comments`));
+  register("get_board", "Get a board with included lists, cards, labels, task lists, and tasks.", z.object({ boardId: Id }), async ({ boardId }) => client.get(`/api/boards/${segment(boardId)}`));
+  register("get_card", "Get a card with included tasks, comments, labels, and attachments.", z.object({ cardId: Id }), async ({ cardId }) => client.get(`/api/cards/${segment(cardId)}`));
+  register("get_comments", "Get comments for a card.", z.object({ cardId: Id }), async ({ cardId }) => client.get(`/api/cards/${segment(cardId)}/comments`));
 
-  tool(server, "create_list", "Create a list on a board.", z.object({ boardId: Id, name: z.string().min(1), position: Position }), async ({ boardId, ...body }) => client.post(`/api/boards/${segment(boardId)}/lists`, body));
-  tool(server, "update_list", "Update a list.", z.object({ listId: Id, name: z.string().min(1).optional(), position: Position }), async ({ listId, ...body }) => client.patch(`/api/lists/${segment(listId)}`, body));
-  tool(server, "delete_list", "Delete a list.", z.object({ listId: Id }), async ({ listId }) => client.delete(`/api/lists/${segment(listId)}`));
+  register("create_list", "Create a list on a board.", z.object({ boardId: Id, name: z.string().min(1), position: Position }), async ({ boardId, ...body }) => client.post(`/api/boards/${segment(boardId)}/lists`, body));
+  register("update_list", "Update a list.", z.object({ listId: Id, name: z.string().min(1).optional(), position: Position }), async ({ listId, ...body }) => client.patch(`/api/lists/${segment(listId)}`, body));
+  register("delete_list", "Delete a list.", z.object({ listId: Id }), async ({ listId }) => client.delete(`/api/lists/${segment(listId)}`));
 
-  tool(
-    server,
+  register(
     "create_card",
     "Create a card in a list. Defaults type to project for Planka 2.x.",
     z.object({
@@ -128,8 +132,7 @@ export function createMcpServer(client: PlankaClient, config: Pick<Config, "enab
     }),
     async ({ listId, ...body }) => client.post(`/api/lists/${segment(listId)}/cards`, body),
   );
-  tool(
-    server,
+  register(
     "update_card",
     "Update card fields.",
     z.object({
@@ -142,12 +145,12 @@ export function createMcpServer(client: PlankaClient, config: Pick<Config, "enab
     }),
     async ({ cardId, ...body }) => client.patch(`/api/cards/${segment(cardId)}`, body),
   );
-  tool(server, "move_card", "Move a card to another list/position and optionally board.", z.object({ cardId: Id, listId: Id, boardId: Id.optional(), position: Position }), async ({ cardId, ...body }) => client.patch(`/api/cards/${segment(cardId)}`, body));
-  tool(server, "delete_card", "Delete a card.", z.object({ cardId: Id }), async ({ cardId }) => client.delete(`/api/cards/${segment(cardId)}`));
+  register("move_card", "Move a card to another list/position and optionally board.", z.object({ cardId: Id, listId: Id, boardId: Id.optional(), position: Position }), async ({ cardId, ...body }) => client.patch(`/api/cards/${segment(cardId)}`, body));
+  register("delete_card", "Delete a card.", z.object({ cardId: Id }), async ({ cardId }) => client.delete(`/api/cards/${segment(cardId)}`));
 
-  tool(server, "create_task_list", "Create a task list/checklist on a card.", z.object({ cardId: Id, name: z.string().min(1), position: Position }), async ({ cardId, ...body }) => client.post(`/api/cards/${segment(cardId)}/task-lists`, { position: 65536, ...body }));
-  tool(server, "create_task", "Create a task in an existing task list.", z.object({ taskListId: Id, name: z.string().min(1), position: Position }), async ({ taskListId, ...body }) => client.post(`/api/task-lists/${segment(taskListId)}/tasks`, body));
-  tool(server, "create_tasks", "Create multiple tasks in an existing task list.", z.object({ taskListId: Id, tasks: z.array(z.object({ name: z.string().min(1), position: Position })).min(1) }), async ({ taskListId, tasks }) => {
+  register("create_task_list", "Create a task list/checklist on a card.", z.object({ cardId: Id, name: z.string().min(1), position: Position }), async ({ cardId, ...body }) => client.post(`/api/cards/${segment(cardId)}/task-lists`, { position: 65536, ...body }));
+  register("create_task", "Create a task in an existing task list.", z.object({ taskListId: Id, name: z.string().min(1), position: Position }), async ({ taskListId, ...body }) => client.post(`/api/task-lists/${segment(taskListId)}/tasks`, body));
+  register("create_tasks", "Create multiple tasks in an existing task list.", z.object({ taskListId: Id, tasks: z.array(z.object({ name: z.string().min(1), position: Position })).min(1) }), async ({ taskListId, tasks }) => {
     const created = [];
     let nextPosition = 65536;
     for (const task of tasks) {
@@ -157,20 +160,20 @@ export function createMcpServer(client: PlankaClient, config: Pick<Config, "enab
     }
     return { items: created };
   });
-  tool(server, "update_task", "Update a task.", z.object({ taskId: Id, name: z.string().min(1).optional(), isCompleted: z.boolean().optional(), position: Position }), async ({ taskId, ...body }) => client.patch(`/api/tasks/${segment(taskId)}`, body));
-  tool(server, "delete_task", "Delete a task.", z.object({ taskId: Id }), async ({ taskId }) => client.delete(`/api/tasks/${segment(taskId)}`));
-  tool(server, "delete_task_list", "Delete a task list/checklist.", z.object({ taskListId: Id }), async ({ taskListId }) => client.delete(`/api/task-lists/${segment(taskListId)}`));
+  register("update_task", "Update a task.", z.object({ taskId: Id, name: z.string().min(1).optional(), isCompleted: z.boolean().optional(), position: Position }), async ({ taskId, ...body }) => client.patch(`/api/tasks/${segment(taskId)}`, body));
+  register("delete_task", "Delete a task.", z.object({ taskId: Id }), async ({ taskId }) => client.delete(`/api/tasks/${segment(taskId)}`));
+  register("delete_task_list", "Delete a task list/checklist.", z.object({ taskListId: Id }), async ({ taskListId }) => client.delete(`/api/task-lists/${segment(taskListId)}`));
 
-  tool(server, "add_comment", "Add a comment to a card.", z.object({ cardId: Id, text: z.string().min(1) }), async ({ cardId, text }) => client.post(`/api/cards/${segment(cardId)}/comments`, { text }));
-  tool(server, "update_comment", "Update a comment.", z.object({ commentId: Id, text: z.string().min(1) }), async ({ commentId, text }) => client.patch(`/api/comments/${segment(commentId)}`, { text }));
-  tool(server, "delete_comment", "Delete a comment.", z.object({ commentId: Id }), async ({ commentId }) => client.delete(`/api/comments/${segment(commentId)}`));
+  register("add_comment", "Add a comment to a card.", z.object({ cardId: Id, text: z.string().min(1) }), async ({ cardId, text }) => client.post(`/api/cards/${segment(cardId)}/comments`, { text }));
+  register("update_comment", "Update a comment.", z.object({ commentId: Id, text: z.string().min(1) }), async ({ commentId, text }) => client.patch(`/api/comments/${segment(commentId)}`, { text }));
+  register("delete_comment", "Delete a comment.", z.object({ commentId: Id }), async ({ commentId }) => client.delete(`/api/comments/${segment(commentId)}`));
 
-  tool(server, "create_label", "Create a label on a board.", z.object({ boardId: Id, name: z.string().nullable().optional(), color: z.string().min(1), position: Position }), async ({ boardId, ...body }) => client.post(`/api/boards/${segment(boardId)}/labels`, body));
-  tool(server, "update_label", "Update a label.", z.object({ labelId: Id, name: z.string().nullable().optional(), color: z.string().optional(), position: Position }), async ({ labelId, ...body }) => client.patch(`/api/labels/${segment(labelId)}`, body));
-  tool(server, "delete_label", "Delete a label.", z.object({ labelId: Id }), async ({ labelId }) => client.delete(`/api/labels/${segment(labelId)}`));
-  tool(server, "add_label_to_card", "Attach a label to a card.", z.object({ cardId: Id, labelId: Id }), async ({ cardId, labelId }) => client.post(`/api/cards/${segment(cardId)}/card-labels`, { labelId }));
-  tool(server, "remove_label_from_card", "Remove a label from a card using Planka 2.x labelId route.", z.object({ cardId: Id, labelId: Id }), async ({ cardId, labelId }) => client.delete(`/api/cards/${segment(cardId)}/card-labels/labelId:${segment(labelId)}`));
-  tool(server, "set_card_labels", "Add and/or remove labels on a card.", z.object({ cardId: Id, addLabelIds: z.array(Id).default([]), removeLabelIds: z.array(Id).default([]) }), async ({ cardId, addLabelIds, removeLabelIds }) => {
+  register("create_label", "Create a label on a board.", z.object({ boardId: Id, name: z.string().nullable().optional(), color: z.string().min(1), position: Position }), async ({ boardId, ...body }) => client.post(`/api/boards/${segment(boardId)}/labels`, body));
+  register("update_label", "Update a label.", z.object({ labelId: Id, name: z.string().nullable().optional(), color: z.string().optional(), position: Position }), async ({ labelId, ...body }) => client.patch(`/api/labels/${segment(labelId)}`, body));
+  register("delete_label", "Delete a label.", z.object({ labelId: Id }), async ({ labelId }) => client.delete(`/api/labels/${segment(labelId)}`));
+  register("add_label_to_card", "Attach a label to a card.", z.object({ cardId: Id, labelId: Id }), async ({ cardId, labelId }) => client.post(`/api/cards/${segment(cardId)}/card-labels`, { labelId }));
+  register("remove_label_from_card", "Remove a label from a card using Planka 2.x labelId route.", z.object({ cardId: Id, labelId: Id }), async ({ cardId, labelId }) => client.delete(`/api/cards/${segment(cardId)}/card-labels/labelId:${segment(labelId)}`));
+  register("set_card_labels", "Add and/or remove labels on a card.", z.object({ cardId: Id, addLabelIds: z.array(Id).default([]), removeLabelIds: z.array(Id).default([]) }), async ({ cardId, addLabelIds, removeLabelIds }) => {
     const removed = [];
     for (const labelId of removeLabelIds) {
       removed.push(await client.delete(`/api/cards/${segment(cardId)}/card-labels/labelId:${segment(labelId)}`));
@@ -183,8 +186,7 @@ export function createMcpServer(client: PlankaClient, config: Pick<Config, "enab
   });
 
   if (config.enableRaw) {
-    tool(
-      server,
+    register(
       "planka_request",
       "Advanced escape hatch: make a raw Planka API request. Disabled unless PLANKA_MCP_ENABLE_RAW=1.",
       z.object({ method: z.enum(["GET", "POST", "PATCH", "DELETE"]), path: z.string().regex(/^\/api\//), body: z.unknown().optional() }),

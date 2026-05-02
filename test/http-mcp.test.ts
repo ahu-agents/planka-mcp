@@ -4,7 +4,7 @@ import { AddressInfo } from "node:net";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createHttpApp } from "../src/server.js";
+import { createHttpApp, runHttp } from "../src/server.js";
 import type { Config } from "../src/config.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -33,10 +33,12 @@ const baseConfig: Config = {
   host: "127.0.0.1",
   port: 0,
   path: "/mcp",
+  allowNetworkBind: false,
+  debugErrors: false,
 };
 
-async function withClient(fetchImpl: typeof fetch, fn: (client: Client) => Promise<void>) {
-  const app = createHttpApp(baseConfig, fetchImpl);
+async function withClient(fetchImpl: typeof fetch, fn: (client: Client) => Promise<void>, config: Config = baseConfig) {
+  const app = createHttpApp(config, fetchImpl);
   const httpServer = createServer(app);
   const port = await listen(httpServer);
   const client = new Client({ name: "test-client", version: "0.0.0" }, { capabilities: {} });
@@ -94,5 +96,48 @@ test("tool failures are marked as MCP errors", async () => {
     const result = await client.callTool({ name: "get_board", arguments: { boardId: "missing" } });
     assert.equal(result.isError, true);
     assert.match(JSON.stringify(result.content), /HTTP 404/);
+    assert.doesNotMatch(JSON.stringify(result.content), /responseBody|\"message\"/);
   });
+});
+
+test("debug error payloads are opt-in", async () => {
+  const fetchImpl = async (url: string | URL | Request) => {
+    if (String(url).endsWith("/api/access-tokens")) return jsonResponse({ item: "jwt-token" });
+    return jsonResponse({ message: "missing" }, 404);
+  };
+
+  await withClient(
+    fetchImpl as typeof fetch,
+    async (client) => {
+      const result = await client.callTool({ name: "get_board", arguments: { boardId: "missing" } });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /missing/);
+    },
+    { ...baseConfig, debugErrors: true },
+  );
+});
+
+test("HTTP mode reuses one Planka client token cache", async () => {
+  let tokenCalls = 0;
+  const fetchImpl = async (url: string | URL | Request) => {
+    if (String(url).endsWith("/api/access-tokens")) {
+      tokenCalls += 1;
+      return jsonResponse({ item: "jwt-token" });
+    }
+    if (String(url).endsWith("/api/projects")) return jsonResponse({ items: [], included: { boards: [] } });
+    return jsonResponse({ error: "unexpected" }, 404);
+  };
+
+  await withClient(fetchImpl as typeof fetch, async (client) => {
+    await client.callTool({ name: "health_check", arguments: {} });
+    await client.callTool({ name: "health_check", arguments: {} });
+  });
+  assert.equal(tokenCalls, 1);
+});
+
+test("HTTP server refuses non-loopback bind unless explicitly allowed", async () => {
+  await assert.rejects(
+    () => runHttp({ ...baseConfig, host: "0.0.0.0", port: 33333 }),
+    /Refusing to bind Planka MCP to non-loopback host/,
+  );
 });

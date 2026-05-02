@@ -4,7 +4,7 @@
   "description": "Streamable HTTP MCP server for Planka/Kanban automation",
   "type": "module",
   "bin": {
-    "planka-mcp": "dist/index.js"
+    "planka-mcp": "dist/src/index.js"
   },
   "files": [
     "dist/src",
@@ -13,8 +13,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "start:stdio": "PLANKA_MCP_TRANSPORT=stdio node dist/index.js",
+    "start": "node dist/src/index.js",
+    "start:stdio": "PLANKA_MCP_TRANSPORT=stdio node dist/src/index.js",
     "test": "npm run build && node --test dist/test/*.test.js",
     "smoke:live": "npm run build && node dist/src/smoke-live.js"
   },
