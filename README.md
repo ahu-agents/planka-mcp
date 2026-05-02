@@ -1,12 +1,19 @@
 # Planka MCP
 
-A small, maintained MCP server for [Planka](https://github.com/plankanban/planka), built for agent use.
+An MCP server for [Planka](https://github.com/plankanban/planka) kanban automation.
 
-It supports **Streamable HTTP** first and keeps **stdio** as a compatibility fallback.
+It exposes Planka projects, boards, users, memberships, lists, cards, tasks, comments, and labels through MCP tools. It runs as **Streamable HTTP** by default and also supports **stdio** for clients that need it.
 
-## Why this exists
+## Capabilities
 
-The stock Planka stdio MCP used in our environment was brittle in long-running agent workflows and its API surface was too narrow. This server keeps the transport boring and exposes the operations agents actually need: projects, boards, lists, cards, tasks, comments, labels, plus an optional guarded raw API escape hatch.
+- Read project, board, card, comment, and user data.
+- Create, update, and delete projects and boards.
+- Manage project managers and board members.
+- Create and manage users, including role, email, username, and password updates.
+- Create and manage lists, cards, task lists, tasks, comments, and labels.
+- Report the current Planka user and role with `get_current_user`.
+- Report role-aware tool guidance with `get_capabilities` so agents can see which operations are expected to be allowed before attempting them.
+- Optionally expose a guarded raw Planka API request tool.
 
 ## Install
 
