@@ -24,6 +24,14 @@ export function createHttpApp(config: Config, fetchImpl: typeof fetch = fetch): 
     const client = new PlankaClient(config, fetchImpl);
     const server = createMcpServer(client, config);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      void transport.close();
+      void server.close();
+    };
+    res.on("close", cleanup);
     try {
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
@@ -37,10 +45,7 @@ export function createHttpApp(config: Config, fetchImpl: typeof fetch = fetch): 
         });
       }
     } finally {
-      res.on("close", () => {
-        void transport.close();
-        void server.close();
-      });
+      if (res.writableEnded || res.destroyed) cleanup();
     }
   });
 

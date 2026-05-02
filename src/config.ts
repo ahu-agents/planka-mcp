@@ -13,8 +13,8 @@ export type Config = {
   path: string;
 };
 
-function readNumber(name: string, fallback: number): number {
-  const raw = process.env[name];
+function readNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
   if (!raw) return fallback;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -50,11 +50,11 @@ export function loadConfig(env = process.env): Config {
     email,
     password,
     token,
-    timeoutMs: readNumber("PLANKA_MCP_REQUEST_TIMEOUT_MS", 30_000),
+    timeoutMs: readNumber(env, "PLANKA_MCP_REQUEST_TIMEOUT_MS", 30_000),
     enableRaw: env.PLANKA_MCP_ENABLE_RAW === "1" || env.PLANKA_MCP_ENABLE_RAW === "true",
     transport,
     host: env.PLANKA_MCP_HOST ?? "127.0.0.1",
-    port: readNumber("PLANKA_MCP_PORT", 3333),
+    port: readNumber(env, "PLANKA_MCP_PORT", 3333),
     path: env.PLANKA_MCP_PATH ?? "/mcp",
   };
 }
