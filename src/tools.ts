@@ -11,6 +11,7 @@ const UserRole = z.enum(["admin", "projectOwner", "boardUser"]);
 const BoardRole = z.enum(["editor", "viewer"]);
 const DefaultView = z.enum(["kanban", "grid", "list"]);
 const DefaultCardType = z.enum(["project", "story"]);
+const POSITION_STEP = 65536;
 
 type CurrentUser = {
   id?: string;
@@ -87,6 +88,19 @@ function capabilityMatrix(user: CurrentUser) {
       remove_board_member: { status: permissionStatus(role, ["admin"], true), requires: "admin or manager/editor with membership rights on target board" },
     },
   };
+}
+
+async function getAppendCardPosition(client: PlankaClient, listId: string): Promise<number> {
+  const response = (await client.get(`/api/lists/${segment(listId)}`)) as {
+    included?: { cards?: Array<{ position?: unknown; listId?: unknown }> };
+  };
+  const cards = Array.isArray(response?.included?.cards) ? response.included.cards : [];
+  const positions = cards
+    .filter((card) => typeof card.listId !== "string" || card.listId === listId)
+    .map((card) => card.position)
+    .filter((position): position is number => typeof position === "number" && Number.isFinite(position));
+
+  return positions.length > 0 ? Math.max(...positions) + POSITION_STEP : POSITION_STEP;
 }
 
 function asText(data: unknown) {
@@ -331,7 +345,10 @@ export function createMcpServer(client: PlankaClient, config: ToolRuntimeConfig)
       type: z.string().default("project"),
       dueDate: z.string().datetime().nullable().optional(),
     }),
-    async ({ listId, ...body }) => client.post(`/api/lists/${segment(listId)}/cards`, body),
+    async ({ listId, ...body }) => {
+      const position = body.position ?? (await getAppendCardPosition(client, listId));
+      return client.post(`/api/lists/${segment(listId)}/cards`, { ...body, position });
+    },
   );
   register(
     "update_card",
@@ -346,7 +363,10 @@ export function createMcpServer(client: PlankaClient, config: ToolRuntimeConfig)
     }),
     async ({ cardId, ...body }) => client.patch(`/api/cards/${segment(cardId)}`, body),
   );
-  register("move_card", "Move a card to another list/position and optionally board.", z.object({ cardId: Id, listId: Id, boardId: Id.optional(), position: Position }), async ({ cardId, ...body }) => client.patch(`/api/cards/${segment(cardId)}`, body));
+  register("move_card", "Move a card to another list/position and optionally board.", z.object({ cardId: Id, listId: Id, boardId: Id.optional(), position: Position }), async ({ cardId, ...body }) => {
+    const position = body.position ?? (await getAppendCardPosition(client, body.listId));
+    return client.patch(`/api/cards/${segment(cardId)}`, { ...body, position });
+  });
   register("delete_card", "Delete a card.", z.object({ cardId: Id }), async ({ cardId }) => client.delete(`/api/cards/${segment(cardId)}`));
 
   register("create_task_list", "Create a task list/checklist on a card.", z.object({ cardId: Id, name: z.string().min(1), position: Position }), async ({ cardId, ...body }) => client.post(`/api/cards/${segment(cardId)}/task-lists`, { position: 65536, ...body }));

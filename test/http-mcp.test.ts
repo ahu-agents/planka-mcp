@@ -108,6 +108,53 @@ test("create_board sends Planka multipart form data", async () => {
   });
 });
 
+test("create_card computes append position when omitted", async () => {
+  let posted: any;
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).endsWith("/api/access-tokens")) return jsonResponse({ item: "jwt-token" });
+    if (String(url).endsWith("/api/lists/l1")) return jsonResponse({ included: { cards: [{ position: 65536 }, { position: 131072 }] } });
+    if (String(url).endsWith("/api/lists/l1/cards")) {
+      posted = JSON.parse(String(init?.body));
+      return jsonResponse({ item: { id: "c1", listId: "l1", ...posted } });
+    }
+    return jsonResponse({ error: "unexpected", url: String(url) }, 404);
+  };
+
+  await withClient(fetchImpl as typeof fetch, async (client) => {
+    const result = await client.callTool({ name: "create_card", arguments: { listId: "l1", name: "Card" } });
+    assert.equal(result.isError, undefined);
+    assert.equal(posted.position, 196608);
+    assert.equal(posted.type, "project");
+  });
+});
+
+test("move_card computes append position when omitted and preserves explicit positions", async () => {
+  const seen: string[] = [];
+  const patches: any[] = [];
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+    seen.push(String(url));
+    if (String(url).endsWith("/api/access-tokens")) return jsonResponse({ item: "jwt-token" });
+    if (String(url).endsWith("/api/lists/l2")) return jsonResponse({ included: { cards: [{ position: 32768 }, { position: 98304 }] } });
+    if (String(url).endsWith("/api/cards/c1")) {
+      patches.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ item: { id: "c1", ...patches.at(-1) } });
+    }
+    return jsonResponse({ error: "unexpected", url: String(url) }, 404);
+  };
+
+  await withClient(fetchImpl as typeof fetch, async (client) => {
+    const omitted = await client.callTool({ name: "move_card", arguments: { cardId: "c1", listId: "l2" } });
+    assert.equal(omitted.isError, undefined);
+    assert.equal(patches[0].position, 163840);
+
+    seen.length = 0;
+    const explicit = await client.callTool({ name: "move_card", arguments: { cardId: "c1", listId: "l2", position: 42 } });
+    assert.equal(explicit.isError, undefined);
+    assert.equal(patches[1].position, 42);
+    assert.equal(seen.some((url) => url.endsWith("/api/lists/l2")), false);
+  });
+});
+
 test("tool path parameters are encoded before calling Planka", async () => {
   const seen: string[] = [];
   const fetchImpl = async (url: string | URL | Request) => {
