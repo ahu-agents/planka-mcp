@@ -108,6 +108,26 @@ test("create_board sends Planka multipart form data", async () => {
   });
 });
 
+test("create_list defaults type to active for Planka 2.x", async () => {
+  let requestBody: string | undefined;
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).endsWith("/api/access-tokens")) return jsonResponse({ item: "jwt-token" });
+    if (String(url).endsWith("/api/boards/b1/lists")) {
+      requestBody = typeof init?.body === "string" ? init.body : undefined;
+      return jsonResponse({ item: { id: "l1", boardId: "b1", name: "Done", type: "active", position: 8 } });
+    }
+    return jsonResponse({ error: "unexpected", url: String(url) }, 404);
+  };
+
+  await withClient(fetchImpl as typeof fetch, async (client) => {
+    const result = await client.callTool({ name: "create_list", arguments: { boardId: "b1", name: "Done", position: 8 } });
+    assert.equal(result.isError, undefined);
+  });
+
+  assert.ok(requestBody);
+  assert.deepEqual(JSON.parse(requestBody!), { name: "Done", position: 8, type: "active" });
+});
+
 test("create_card computes append position when omitted", async () => {
   let posted: any;
   const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
