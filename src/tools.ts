@@ -11,6 +11,7 @@ const UserRole = z.enum(["admin", "projectOwner", "boardUser"]);
 const BoardRole = z.enum(["editor", "viewer"]);
 const DefaultView = z.enum(["kanban", "grid", "list"]);
 const DefaultCardType = z.enum(["project", "story"]);
+const ListType = z.enum(["active", "closed"]);
 const POSITION_STEP = 65536;
 
 type CurrentUser = {
@@ -330,7 +331,12 @@ export function createMcpServer(client: PlankaClient, config: ToolRuntimeConfig)
   register("get_card", "Get a card with included tasks, comments, labels, and attachments.", z.object({ cardId: Id }), async ({ cardId }) => client.get(`/api/cards/${segment(cardId)}`));
   register("get_comments", "Get comments for a card.", z.object({ cardId: Id }), async ({ cardId }) => client.get(`/api/cards/${segment(cardId)}/comments`));
 
-  register("create_list", "Create a list on a board.", z.object({ boardId: Id, name: z.string().min(1), position: Position }), async ({ boardId, ...body }) => client.post(`/api/boards/${segment(boardId)}/lists`, body));
+  register(
+    "create_list",
+    "Create a list on a board. Defaults type to active for Planka 2.x.",
+    z.object({ boardId: Id, name: z.string().min(1), position: Position, type: ListType.default("active") }),
+    async ({ boardId, ...body }) => client.post(`/api/boards/${segment(boardId)}/lists`, body),
+  );
   register("update_list", "Update a list.", z.object({ listId: Id, name: z.string().min(1).optional(), position: Position }), async ({ listId, ...body }) => client.patch(`/api/lists/${segment(listId)}`, body));
   register("delete_list", "Delete a list.", z.object({ listId: Id }), async ({ listId }) => client.delete(`/api/lists/${segment(listId)}`));
 
