@@ -1,5 +1,14 @@
 # Planka MCP
 
+> An MCP server for [Planka](https://github.com/plankanban/planka) kanban automation.
+
+[![CI](https://github.com/ahu-agents/planka-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ahu-agents/planka-mcp/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/github/license/ahu-agents/planka-mcp)](LICENSE)
+
+[![Support via bunq](https://img.shields.io/badge/Support-bunq-00A1E0?style=flat-square&logo=bunq&logoColor=white)](https://bunq.me/ahuservices?description=planka-mcp-maintenance-support)
+
 An MCP server for [Planka](https://github.com/plankanban/planka) kanban automation.
 
 It exposes Planka projects, boards, users, memberships, lists, cards, tasks, comments, and labels through MCP tools. It runs as **Streamable HTTP** by default and also supports **stdio** for clients that need it.
@@ -129,3 +138,11 @@ The live smoke only authenticates and reads project/board/list structure.
 - Streamable HTTP currently runs in stateless POST mode. `GET` and `DELETE` session lifecycle requests return `405` intentionally.
 - Upstream Planka error bodies are redacted by default from MCP tool errors; enable `PLANKA_MCP_DEBUG_ERRORS=1` only while debugging.
 - The raw API tool is disabled by default because it expands the callable API surface.
+
+## Support
+
+If this MCP server is useful to you, you can [support its ongoing maintenance via bunq](https://bunq.me/ahuservices?description=planka-mcp-maintenance-support). Support is voluntary and appreciated, but does not create any entitlement to support, features, consulting, an SLA, or invoice-based work.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
