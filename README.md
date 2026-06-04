@@ -139,6 +139,13 @@ The live smoke only authenticates and reads project/board/list structure.
 - Upstream Planka error bodies are redacted by default from MCP tool errors; enable `PLANKA_MCP_DEBUG_ERRORS=1` only while debugging.
 - The raw API tool is disabled by default because it expands the callable API surface.
 
+## Governance
+
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security policy: [SECURITY.md](SECURITY.md)
+- AI-agent guide: [AGENTS.md](AGENTS.md)
+- License: [LICENSE](LICENSE)
+
 ## Support
 
 If this MCP server is useful to you, you can [support its ongoing maintenance via bunq](https://bunq.me/ahuservices?description=planka-mcp-maintenance-support). Support is voluntary and appreciated, but does not create any entitlement to support, features, consulting, an SLA, or invoice-based work.
