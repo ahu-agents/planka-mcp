@@ -16,6 +16,7 @@
     "start": "node dist/src/index.js",
     "start:stdio": "PLANKA_MCP_TRANSPORT=stdio node dist/src/index.js",
     "test": "npm run build && node --test dist/test/*.test.js",
+    "test:coverage": "npm run build && c8 --reporter=lcov --reporter=text --exclude-after-remap --exclude='**/*.test.ts' --exclude='src/smoke-live.ts' node --test dist/test/*.test.js",
     "smoke:live": "npm run build && node dist/src/smoke-live.js"
   },
   "keywords": [
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@types/express": "^5.0.5",
     "@types/node": "^22.19.1",
+    "c8": "^10.1.3",
     "typescript": "^5.9.3"
   }
 }
