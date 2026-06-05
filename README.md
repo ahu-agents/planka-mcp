@@ -3,6 +3,8 @@
 > An MCP server for [Planka](https://github.com/plankanban/planka) kanban automation.
 
 [![CI](https://github.com/ahu-agents/planka-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ahu-agents/planka-mcp/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=ahu-agents_planka-mcp&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ahu-agents_planka-mcp)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ahu-agents_planka-mcp&metric=coverage)](https://sonarcloud.io/summary/new_code?id=ahu-agents_planka-mcp)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/github/license/ahu-agents/planka-mcp)](LICENSE)
